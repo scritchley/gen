@@ -21,6 +21,12 @@ func ReplaceIdent(from, to string) func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.Ident:
 			n.Name = findAndReplace(n.Name, from, to)
+		case *ast.CommentGroup:
+			for i := range n.List {
+				n.List[i].Text = findAndReplace(n.List[i].Text, from, to)
+			}
+		case *ast.Comment:
+			n.Text = findAndReplace(n.Text, from, to)
 		}
 		return true
 	}
@@ -30,19 +36,19 @@ func excludeStub(f os.FileInfo) bool {
 	return f.Name() != "stub.go"
 }
 
-func findAndReplace(find, from, to string) string {
-	toLower := strings.ToLower(to)
-	fromLower := strings.ToLower(from)
-	if find == from {
-		return to
+func findAndReplace(match, find, replace string) string {
+	replaceLower := strings.ToLower(replace)
+	findLower := strings.ToLower(find)
+	if match == find {
+		return replace
 	}
-	if strings.Contains(find, from) {
-		return strings.Replace(find, from, to, -1)
+	if strings.Contains(match, find) {
+		return strings.Replace(match, find, replace, -1)
 	}
-	if strings.Contains(find, fromLower) {
-		return strings.Replace(find, fromLower, toLower, -1)
+	if strings.Contains(match, findLower) {
+		return strings.Replace(match, findLower, replaceLower, -1)
 	}
-	return find
+	return match
 }
 
 func match(s string) bool {
@@ -89,8 +95,18 @@ func run() error {
 }
 
 func generateAll(pkg, typ string, declarations ...string) error {
+	log.Println(pkg, typ, declarations)
 	for i := range declarations {
-		err := generate(pkg, typ, declarations[i])
+		splitType := strings.Split(declarations[i], ":")
+		var ipath, ident string
+		if len(splitType) == 2 {
+			ipath = splitType[0]
+			ident = splitType[1]
+		} else {
+			ipath = declarations[i]
+			ident = genericIdentName
+		}
+		err := generate(pkg, typ, ipath, ident)
 		if err != nil {
 			return err
 		}
@@ -98,7 +114,8 @@ func generateAll(pkg, typ string, declarations ...string) error {
 	return nil
 }
 
-func generate(pkg, typ, declaration string) error {
+func generate(pkg, typ, declaration, ident string) error {
+	log.Println(pkg, typ, declaration, ident)
 	resolvedDeclaration, err := resolveDeclarationPath(declaration)
 	if err != nil {
 		return err
@@ -111,11 +128,11 @@ func generate(pkg, typ, declaration string) error {
 	// Replace the package idents
 	for _, p := range pkgs {
 		// Replace all generic idents
-		ast.Inspect(p, ReplaceIdent(genericIdentName, typ))
+		ast.Inspect(p, ReplaceIdent(ident, typ))
 		// Replace the package name
 		p.Name = pkg
 		// Print the generated code
-		err := writeAllFiles(fset, typ, p.Files)
+		err := writeAllFiles(fset, pkg, typ, p.Files)
 		if err != nil {
 			return err
 		}
@@ -123,8 +140,9 @@ func generate(pkg, typ, declaration string) error {
 	return nil
 }
 
-func writeAllFiles(fset *token.FileSet, typ string, files map[string]*ast.File) error {
+func writeAllFiles(fset *token.FileSet, pkg, typ string, files map[string]*ast.File) error {
 	for filename := range files {
+		files[filename].Name.Name = pkg
 		err := writeFile(fset, typ, filename, files[filename])
 		if err != nil {
 			return err
