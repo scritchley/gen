@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -60,42 +61,48 @@ func trim(s string) string {
 }
 
 func run() error {
+
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, wd, nil, parser.ParseComments)
-	if err != nil {
-		return err
-	}
-	for _, pkg := range pkgs {
-		var found bool
-		var declarations []string
-		ast.Inspect(pkg, func(n ast.Node) bool {
-			switch t := n.(type) {
-			case *ast.CommentGroup:
-				for _, comment := range t.List {
-					if match(comment.Text) {
-						found = true
-						declarations = append(declarations, trim(comment.Text))
+	filepath.Walk(wd, filepath.WalkFunc(func(path string, f os.FileInfo, err error) error {
+		if !f.IsDir() {
+			return nil
+		}
+		fset := token.NewFileSet()
+		pkgs, err := parser.ParseDir(fset, path, nil, parser.ParseComments)
+		if err != nil {
+			return err
+		}
+		for _, pkg := range pkgs {
+			var found bool
+			var declarations []string
+			ast.Inspect(pkg, func(n ast.Node) bool {
+				switch t := n.(type) {
+				case *ast.CommentGroup:
+					for _, comment := range t.List {
+						if match(comment.Text) {
+							found = true
+							declarations = append(declarations, trim(comment.Text))
+						}
+					}
+				case *ast.Ident:
+					if found {
+						generateAll(path, pkg.Name, t.Name, declarations...)
+						found = false
+						declarations = nil
 					}
 				}
-			case *ast.Ident:
-				if found {
-					generateAll(pkg.Name, t.Name, declarations...)
-					found = false
-					declarations = nil
-				}
-			}
-			return true
-		})
-	}
+				return true
+			})
+		}
+		return nil
+	}))
 	return nil
 }
 
-func generateAll(pkg, typ string, declarations ...string) error {
-	log.Println(pkg, typ, declarations)
+func generateAll(path string, pkg, typ string, declarations ...string) error {
 	for i := range declarations {
 		splitType := strings.Split(declarations[i], ":")
 		var ipath, ident string
@@ -106,7 +113,7 @@ func generateAll(pkg, typ string, declarations ...string) error {
 			ipath = declarations[i]
 			ident = genericIdentName
 		}
-		err := generate(pkg, typ, ipath, ident)
+		err := generate(path, pkg, typ, ipath, ident)
 		if err != nil {
 			return err
 		}
@@ -114,8 +121,10 @@ func generateAll(pkg, typ string, declarations ...string) error {
 	return nil
 }
 
-func generate(pkg, typ, declaration, ident string) error {
-	log.Println(pkg, typ, declaration, ident)
+func generate(path string, pkg, typ, declaration, ident string) error {
+	log.Printf("Generating code for package: %s\n", pkg)
+	log.Printf("Type %s will implement generic package: %s \n", typ, declaration)
+	log.Printf("Replacing ident: %s with ident: %s", ident, typ)
 	resolvedDeclaration, err := resolveDeclarationPath(declaration)
 	if err != nil {
 		return err
@@ -132,7 +141,7 @@ func generate(pkg, typ, declaration, ident string) error {
 		// Replace the package name
 		p.Name = pkg
 		// Print the generated code
-		err := writeAllFiles(fset, pkg, typ, p.Files)
+		err := writeAllFiles(path, fset, pkg, typ, p.Files)
 		if err != nil {
 			return err
 		}
@@ -140,10 +149,10 @@ func generate(pkg, typ, declaration, ident string) error {
 	return nil
 }
 
-func writeAllFiles(fset *token.FileSet, pkg, typ string, files map[string]*ast.File) error {
+func writeAllFiles(path string, fset *token.FileSet, pkg, typ string, files map[string]*ast.File) error {
 	for filename := range files {
 		files[filename].Name.Name = pkg
-		err := writeFile(fset, typ, filename, files[filename])
+		err := writeFile(path, fset, typ, filename, files[filename])
 		if err != nil {
 			return err
 		}
@@ -151,13 +160,9 @@ func writeAllFiles(fset *token.FileSet, pkg, typ string, files map[string]*ast.F
 	return nil
 }
 
-func writeFile(fset *token.FileSet, typ, filename string, file *ast.File) error {
-	wd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
+func writeFile(outputPath string, fset *token.FileSet, typ, filename string, file *ast.File) error {
 	filename = fmt.Sprintf("%s_%s", strings.ToLower(typ), path.Base(filename))
-	fn := path.Join(wd, filename)
+	fn := path.Join(outputPath, filename)
 	f, err := os.Create(fn)
 	if err != nil {
 		return err

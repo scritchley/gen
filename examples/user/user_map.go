@@ -1,4 +1,4 @@
-package iterator
+package user
 
 type UserSlice []User
 
