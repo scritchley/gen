@@ -10,7 +10,7 @@ go install github.com/scritchley/gen
 
 ### Examples
 
-See the `examples` directory. Full explanation can be found in my blog post: (Generic code generation in Go)[http://simon-critchley.co.uk/generic-code-generation-in-go/].
+See the `examples` directory. Full explanation can be found in my blog post: [Generic code generation in Go](http://simon-critchley.co.uk/generic-code-generation-in-go/).
 
 ### TODO
 

@@ -34,7 +34,7 @@ func ReplaceIdent(from, to string) func(n ast.Node) bool {
 }
 
 func excludeStub(f os.FileInfo) bool {
-	return f.Name() != "stub.go"
+	return f.Name() != "stub.go" || f.Name() != "stub_test.go"
 }
 
 func findAndReplace(match, find, replace string) string {
