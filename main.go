@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -9,12 +10,18 @@ import (
 	"log"
 	"os"
 	"path"
-	"path/filepath"
+	// "path/filepath"
 	"strings"
 )
 
 const (
-	genericIdentName = "T__"
+	defaultSourceIdent = "T__"
+)
+
+var (
+	sourcePkg        = flag.String("src", "", "the package to generate code from")
+	sourceIdent      = flag.String("ident", defaultSourceIdent, "the source ident to use for replacement")
+	destinationIdent = flag.String("dest", "", "the destination ident to use for replacement")
 )
 
 func ReplaceIdent(from, to string) func(n ast.Node) bool {
@@ -34,7 +41,7 @@ func ReplaceIdent(from, to string) func(n ast.Node) bool {
 }
 
 func excludeStub(f os.FileInfo) bool {
-	return f.Name() != "stub.go" || f.Name() != "stub_test.go"
+	return f.Name() != "stub.go" && f.Name() != "stub_test.go"
 }
 
 func findAndReplace(match, find, replace string) string {
@@ -66,40 +73,24 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	filepath.Walk(wd, filepath.WalkFunc(func(path string, f os.FileInfo, err error) error {
-		if !f.IsDir() {
-			return nil
-		}
-		fset := token.NewFileSet()
-		pkgs, err := parser.ParseDir(fset, path, nil, parser.ParseComments)
-		if err != nil {
-			return err
-		}
-		for _, pkg := range pkgs {
-			var found bool
-			var declarations []string
-			ast.Inspect(pkg, func(n ast.Node) bool {
-				switch t := n.(type) {
-				case *ast.CommentGroup:
-					for _, comment := range t.List {
-						if match(comment.Text) {
-							found = true
-							declarations = append(declarations, trim(comment.Text))
-						}
-					}
-				case *ast.Ident:
-					if found {
-						generateAll(path, pkg.Name, t.Name, declarations...)
-						found = false
-						declarations = nil
-					}
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, wd, nil, parser.ParseComments)
+	if err != nil {
+		return err
+	}
+	for _, pkg := range pkgs {
+		ast.Inspect(pkg, func(n ast.Node) bool {
+			switch t := n.(type) {
+			case *ast.TypeSpec:
+				if t.Name.Name == *destinationIdent {
+					generateAll(wd, pkg.Name, t.Name.Name, *sourcePkg)
 				}
-				return true
-			})
-		}
-		return nil
-	}))
+			}
+			return true
+		})
+	}
 	return nil
+
 }
 
 func generateAll(path string, pkg, typ string, declarations ...string) error {
@@ -111,7 +102,7 @@ func generateAll(path string, pkg, typ string, declarations ...string) error {
 			ident = splitType[1]
 		} else {
 			ipath = declarations[i]
-			ident = genericIdentName
+			ident = *sourceIdent
 		}
 		err := generate(path, pkg, typ, ipath, ident)
 		if err != nil {
@@ -122,9 +113,7 @@ func generateAll(path string, pkg, typ string, declarations ...string) error {
 }
 
 func generate(path string, pkg, typ, declaration, ident string) error {
-	log.Printf("Generating code for package: %s\n", pkg)
-	log.Printf("Type %s will implement generic package: %s \n", typ, declaration)
-	log.Printf("Replacing ident: %s with ident: %s", ident, typ)
+	log.Printf("generating %s: %s -> %s\n", declaration, ident, typ)
 	resolvedDeclaration, err := resolveDeclarationPath(declaration)
 	if err != nil {
 		return err
@@ -187,9 +176,9 @@ func resolveDeclarationPath(decl string) (string, error) {
 }
 
 func main() {
+	flag.Parse()
 	err := run()
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println("done")
 }

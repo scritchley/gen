@@ -1,7 +1,7 @@
 package user
 
 // User is a user model.
-// @github.com/scritchley/gen/examples/iterator
+//go:generate gen -src github.com/scritchley/gen/examples/iterator -dest User
 type User struct {
 	Name string
 	Age  int
