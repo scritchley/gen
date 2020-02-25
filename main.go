@@ -10,8 +10,12 @@ import (
 	"log"
 	"os"
 	"path"
-	// "path/filepath"
+	"path/filepath"
+	"runtime"
 	"strings"
+
+	"github.com/iancoleman/strcase"
+	"golang.org/x/tools/go/ast/astutil"
 )
 
 const (
@@ -19,13 +23,38 @@ const (
 )
 
 var (
-	sourcePkg        = flag.String("src", "", "the package to generate code from")
-	sourceIdent      = flag.String("ident", defaultSourceIdent, "the source ident to use for replacement")
-	destinationIdent = flag.String("dest", "", "the destination ident to use for replacement")
+	sourcePkg    = flag.String("src", "", "the package to generate code from")
+	replace      = flag.String("replace", "", "a comma separated list of replacements to perform")
+	excludeTypes = flag.String("exclude", "", "a comma separated list of types to exclude from generation, defaults to none excluded")
+	includeTypes = flag.String("include", "", "a comma separated list of types to include in generation, defaults to all included")
 )
 
-func ReplaceIdent(from, to string) func(n ast.Node) bool {
-	return func(n ast.Node) bool {
+func FilterIdents() func(c *astutil.Cursor) bool {
+	return func(c *astutil.Cursor) bool {
+		n := c.Node()
+		switch n := n.(type) {
+		case *ast.GenDecl:
+			for _, spec := range n.Specs {
+				if v, ok := spec.(*ast.TypeSpec); ok {
+					if !isIncludedIdent(v.Name.Name) {
+						c.Delete()
+					}
+				}
+			}
+		case *ast.FuncDecl:
+			if n.Recv == nil {
+				if !isIncludedIdent(n.Name.String()) {
+					c.Delete()
+				}
+			}
+		}
+		return true
+	}
+}
+
+func ReplaceIdent(from, to string) func(c *astutil.Cursor) bool {
+	return func(c *astutil.Cursor) bool {
+		n := c.Node()
 		switch n := n.(type) {
 		case *ast.Ident:
 			n.Name = findAndReplace(n.Name, from, to)
@@ -40,13 +69,29 @@ func ReplaceIdent(from, to string) func(n ast.Node) bool {
 	}
 }
 
-func excludeStub(f os.FileInfo) bool {
-	return f.Name() != "stub.go" && f.Name() != "stub_test.go"
+func isIncludedIdent(name string) bool {
+	excludeIdents := strings.Split(*excludeTypes, ",")
+	excludeIdents = append(excludeIdents, defaultSourceIdent)
+	for _, ident := range excludeIdents {
+		if ident == name {
+			return false
+		}
+	}
+	if *includeTypes == "" {
+		return true
+	}
+	includeIdents := strings.Split(*includeTypes, ",")
+	for _, ident := range includeIdents {
+		if name == ident {
+			return true
+		}
+	}
+	return false
 }
 
 func findAndReplace(match, find, replace string) string {
-	replaceLower := strings.ToLower(replace)
-	findLower := strings.ToLower(find)
+	replaceLower := strcase.ToLowerCamel(replace)
+	findLower := strcase.ToLowerCamel(find)
 	if match == find {
 		return replace
 	}
@@ -59,16 +104,7 @@ func findAndReplace(match, find, replace string) string {
 	return match
 }
 
-func match(s string) bool {
-	return strings.Contains(s, "@")
-}
-
-func trim(s string) string {
-	return strings.TrimPrefix(s, "// @")
-}
-
 func run() error {
-
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -79,21 +115,34 @@ func run() error {
 		return err
 	}
 	for _, pkg := range pkgs {
-		ast.Inspect(pkg, func(n ast.Node) bool {
-			switch t := n.(type) {
-			case *ast.TypeSpec:
-				if t.Name.Name == *destinationIdent {
-					generateAll(wd, pkg.Name, t.Name.Name, *sourcePkg)
-				}
+		for _, replacement := range getReplacements() {
+			err := generateAll(wd, pkg.Name, replacement, *sourcePkg)
+			if err != nil {
+				return err
 			}
-			return true
-		})
+		}
 	}
 	return nil
-
 }
 
-func generateAll(path string, pkg, typ string, declarations ...string) error {
+type replacement struct{ from, to string }
+
+func getReplacements() []replacement {
+	replacementStrings := strings.Split(*replace, ",")
+	var replacements []replacement
+	for _, repStr := range replacementStrings {
+		rep := strings.Split(repStr, "=")
+		if len(rep) != 2 {
+			continue
+		}
+		replacements = append(replacements, replacement{
+			from: rep[0], to: rep[1],
+		})
+	}
+	return replacements
+}
+
+func generateAll(path string, pkg string, typ replacement, declarations ...string) error {
 	for i := range declarations {
 		splitType := strings.Split(declarations[i], ":")
 		var ipath, ident string
@@ -102,9 +151,9 @@ func generateAll(path string, pkg, typ string, declarations ...string) error {
 			ident = splitType[1]
 		} else {
 			ipath = declarations[i]
-			ident = *sourceIdent
+			ident = typ.from
 		}
-		err := generate(path, pkg, typ, ipath, ident)
+		err := generate(path, pkg, typ.to, ipath, ident)
 		if err != nil {
 			return err
 		}
@@ -119,14 +168,14 @@ func generate(path string, pkg, typ, declaration, ident string) error {
 		return err
 	}
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, resolvedDeclaration, excludeStub, parser.ParseComments)
+	pkgs, err := parser.ParseDir(fset, resolvedDeclaration, nil, parser.ParseComments)
 	if err != nil {
 		return err
 	}
 	// Replace the package idents
 	for _, p := range pkgs {
 		// Replace all generic idents
-		ast.Inspect(p, ReplaceIdent(ident, typ))
+		astutil.Apply(p, FilterIdents(), ReplaceIdent(ident, typ))
 		// Replace the package name
 		p.Name = pkg
 		// Print the generated code
@@ -167,8 +216,35 @@ func writeFile(outputPath string, fset *token.FileSet, typ, filename string, fil
 	return nil
 }
 
+func defaultGOPATH() string {
+	env := "HOME"
+	if runtime.GOOS == "windows" {
+		env = "USERPROFILE"
+	} else if runtime.GOOS == "plan9" {
+		env = "home"
+	}
+	if home := os.Getenv(env); home != "" {
+		def := filepath.Join(home, "go")
+		if filepath.Clean(def) == filepath.Clean(runtime.GOROOT()) {
+			// Don't set the default GOPATH to GOROOT,
+			// as that will trigger warnings from the go tool.
+			return ""
+		}
+		return def
+	}
+	return ""
+}
+
+func envOr(name, def string) string {
+	s := os.Getenv(name)
+	if s == "" {
+		return def
+	}
+	return s
+}
+
 func resolveDeclarationPath(decl string) (string, error) {
-	gopath := os.Getenv("GOPATH")
+	gopath := envOr("GOPATH", defaultGOPATH())
 	if gopath == "" {
 		return "", fmt.Errorf("GOPATH not set")
 	}
