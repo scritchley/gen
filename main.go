@@ -46,6 +46,10 @@ func FilterIdents() func(c *astutil.Cursor) bool {
 				if !isIncludedIdent(n.Name.String()) {
 					c.Delete()
 				}
+			} else {
+				if !isIncludedIdent(n.Recv.List[0].Names[0].Name) {
+					c.Delete()
+				}
 			}
 		}
 		return true
