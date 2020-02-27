@@ -4,8 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
-	"go/printer"
 	"go/token"
 	"log"
 	"os"
@@ -47,8 +47,15 @@ func FilterIdents() func(c *astutil.Cursor) bool {
 					c.Delete()
 				}
 			} else {
-				if !isIncludedIdent(n.Recv.List[0].Names[0].Name) {
-					c.Delete()
+				switch t := n.Recv.List[0].Type.(type) {
+				case *ast.Ident:
+					if !isIncludedIdent(fmt.Sprintf("%s.%s", n.Recv.List[0].Type, n.Name.String())) {
+						c.Delete()
+					}
+				case *ast.StarExpr:
+					if !isIncludedIdent(fmt.Sprintf("%s.%s", t.X, n.Name.String())) {
+						c.Delete()
+					}
 				}
 			}
 		}
@@ -209,7 +216,7 @@ func writeFile(outputPath string, fset *token.FileSet, typ, filename string, fil
 	if err != nil {
 		return err
 	}
-	err = printer.Fprint(f, fset, file)
+	err = format.Node(f, fset, file)
 	if err != nil {
 		return err
 	}
