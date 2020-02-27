@@ -32,3 +32,7 @@ func (t TypeSlice) Reduce(accumulator func(TypeAccumulator, Type) TypeAccumulato
 	}
 	return initial
 }
+
+func (t TypeSlice) ignoreThisMethod() {
+
+}
