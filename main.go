@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/gertd/go-pluralize"
 	"github.com/iancoleman/strcase"
 	"golang.org/x/tools/go/ast/astutil"
 )
@@ -27,6 +28,8 @@ var (
 	replace      = flag.String("replace", "", "a comma separated list of replacements to perform")
 	excludeTypes = flag.String("exclude", "", "a comma separated list of types to exclude from generation, defaults to none excluded")
 	includeTypes = flag.String("include", "", "a comma separated list of types to include in generation, defaults to all included")
+
+	pl = pluralize.NewClient()
 )
 
 func FilterIdents() func(c *astutil.Cursor) bool {
@@ -105,6 +108,9 @@ func findAndReplace(match, find, replace string) string {
 	findLower := strcase.ToLowerCamel(find)
 	if match == find {
 		return replace
+	}
+	if strings.Contains(match, pl.Pluralize(find, 2, false)) {
+		return strings.Replace(match, pl.Pluralize(find, 2, false), pl.Pluralize(replace, 2, false), -1)
 	}
 	if strings.Contains(match, find) {
 		return strings.Replace(match, find, replace, -1)
