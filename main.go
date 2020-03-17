@@ -110,13 +110,13 @@ func findAndReplace(match, find, replace string) string {
 		return replace
 	}
 	if strings.Contains(match, pl.Pluralize(find, 2, false)) {
-		return strings.Replace(match, pl.Pluralize(find, 2, false), pl.Pluralize(replace, 2, false), -1)
+		match = strings.Replace(match, pl.Pluralize(find, 2, false), pl.Pluralize(replace, 2, false), -1)
 	}
 	if strings.Contains(match, find) {
-		return strings.Replace(match, find, replace, -1)
+		match = strings.Replace(match, find, replace, -1)
 	}
 	if strings.Contains(match, findLower) {
-		return strings.Replace(match, findLower, replaceLower, -1)
+		match = strings.Replace(match, findLower, replaceLower, -1)
 	}
 	return match
 }
