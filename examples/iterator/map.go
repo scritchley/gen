@@ -2,7 +2,7 @@ package iterator
 
 type Type interface{}
 
-// TypeSlice is a slice of Type.
+// TypeSlice is a slice of Type that foo.
 type TypeSlice []Type
 
 // Map calls the provided func for each element in t and returns a new TypeSlice.

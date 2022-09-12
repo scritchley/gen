@@ -104,6 +104,7 @@ func isIncludedIdent(name string) bool {
 }
 
 func findAndReplace(match, find, replace string) string {
+	fmt.Println(match, find, replace)
 	replaceLower := strcase.ToLowerCamel(replace)
 	findLower := strcase.ToLowerCamel(find)
 	if match == find {
@@ -132,11 +133,9 @@ func run() error {
 		return err
 	}
 	for _, pkg := range pkgs {
-		for _, replacement := range getReplacements() {
-			err := generateAll(wd, pkg.Name, replacement, *sourcePkg)
-			if err != nil {
-				return err
-			}
+		err := generateAll(wd, pkg.Name, getReplacements(), *sourcePkg)
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -156,30 +155,12 @@ func getReplacements() []replacement {
 			from: rep[0], to: rep[1],
 		})
 	}
+	log.Printf("replacements: %v", replacements)
 	return replacements
 }
 
-func generateAll(path string, pkg string, typ replacement, declarations ...string) error {
-	for i := range declarations {
-		splitType := strings.Split(declarations[i], ":")
-		var ipath, ident string
-		if len(splitType) == 2 {
-			ipath = splitType[0]
-			ident = splitType[1]
-		} else {
-			ipath = declarations[i]
-			ident = typ.from
-		}
-		err := generate(path, pkg, typ.to, ipath, ident)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func generate(path string, pkg, typ, declaration, ident string) error {
-	log.Printf("generating %s: %s -> %s\n", declaration, ident, typ)
+func generateAll(path string, pkg string, replacements []replacement, declaration string) error {
+	log.Printf("generating %s", declaration)
 	resolvedDeclaration, err := resolveDeclarationPath(declaration)
 	if err != nil {
 		return err
@@ -191,12 +172,15 @@ func generate(path string, pkg, typ, declaration, ident string) error {
 	}
 	// Replace the package idents
 	for _, p := range pkgs {
-		// Replace all generic idents
-		astutil.Apply(p, FilterIdents(), ReplaceIdent(ident, typ))
+		for _, replacement := range replacements {
+			log.Printf("replacing %s -> %s", replacement.from, replacement.to)
+			// Replace all generic idents
+			p = astutil.Apply(p, FilterIdents(), ReplaceIdent(replacement.from, replacement.to)).(*ast.Package)
+		}
 		// Replace the package name
 		p.Name = pkg
 		// Print the generated code
-		err := writeAllFiles(path, fset, pkg, typ, p.Files)
+		err := writeAllFiles(path, fset, pkg, replacements[0].to, p.Files)
 		if err != nil {
 			return err
 		}

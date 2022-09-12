@@ -1,6 +1,6 @@
 package user
 
-// UserSlice is a slice of User.
+// UserSlice is a slice of User that bar.
 type UserSlice []User
 
 // Map calls the provided func for each element in t and returns a new UserSlice.
