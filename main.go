@@ -104,7 +104,6 @@ func isIncludedIdent(name string) bool {
 }
 
 func findAndReplace(match, find, replace string) string {
-	fmt.Println(match, find, replace)
 	replaceLower := strcase.ToLowerCamel(replace)
 	findLower := strcase.ToLowerCamel(find)
 	if match == find {
